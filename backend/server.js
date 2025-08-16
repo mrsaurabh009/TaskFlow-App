@@ -20,6 +20,8 @@ import taskRoutes from './src/routes/taskRoutes.js';
 import healthRoutes from './src/routes/healthRoutes.js';
 import { validateEnvironment } from './src/utils/validators.js';
 import { logger } from './src/utils/logger.js';
+import connectDB from './src/db/connect.js';
+import { initializeSampleData } from './src/db/memoryStore.js';
 
 // Load environment variables
 dotenv.config();
@@ -226,9 +228,29 @@ const gracefulShutdown = (signal) => {
     }, 10000);
 };
 
-// Start server
-const server = app.listen(PORT, HOST, () => {
-    logger.info(`
+// Initialize database connection and start server
+const startServer = async () => {
+  let databaseConnected = false;
+  
+  try {
+    // Try to connect to MongoDB
+    const dbConnection = await connectDB();
+    databaseConnected = dbConnection !== null;
+  } catch (error) {
+    logger.warn('MongoDB connection failed, starting with in-memory storage');
+    databaseConnected = false;
+  }
+  
+  // If MongoDB is not available, initialize in-memory storage
+  if (!databaseConnected) {
+    logger.info('🗄️  Initializing in-memory storage for development');
+    initializeSampleData();
+  }
+  
+  // Start server regardless of database connection status
+  const server = app.listen(PORT, HOST, () => {
+      const dbStatus = databaseConnected ? 'MongoDB Atlas' : 'In-Memory Storage';
+      logger.info(`
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                              TaskFlow API                                    ║
 ║                                                                              ║
@@ -236,19 +258,31 @@ const server = app.listen(PORT, HOST, () => {
 ║  🌍 Environment: ${NODE_ENV.toUpperCase().padEnd(10)}                                              ║
 ║  📡 API Endpoint: http://${HOST}:${PORT}${API_PREFIX}/${API_VERSION}                             ║
 ║  🏥 Health Check: http://${HOST}:${PORT}/health                              ║
+║  🗄️  Database: ${dbStatus.padEnd(15)}                                        ║
 ║  📊 Process ID: ${process.pid}                                                ║
 ║  ⏰ Started at: ${new Date().toISOString()}                               ║
 ║                                                                              ║
 ║  Ready to handle task management operations! 📝                             ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
-    `);
-    
-    if (NODE_ENV === 'development') {
-        logger.info('Development mode: Detailed error messages enabled');
-        logger.info('CORS: Development origins allowed');
-        logger.info('Rate limiting: Relaxed for development');
-    }
-});
+      `);
+      
+      if (NODE_ENV === 'development') {
+          logger.info('Development mode: Detailed error messages enabled');
+          logger.info('CORS: Development origins allowed');
+          logger.info('Rate limiting: Relaxed for development');
+          
+          if (!databaseConnected) {
+              logger.info('💡 Using in-memory storage - data will not persist between server restarts');
+              logger.info('💡 Configure MongoDB Atlas URI in .env to enable persistent storage');
+          }
+      }
+  });
+  
+  return server;
+};
+
+// Start the server
+const server = await startServer();
 
 // Handle server errors
 server.on('error', (error) => {

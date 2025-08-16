@@ -5,8 +5,10 @@
 
 import { Router } from 'express';
 import os from 'os';
-import { taskStore } from '../controllers/taskController.js';
+import { getDBStats, testConnection } from '../db/connect.js';
 import { logger } from '../utils/logger.js';
+import mongoose from 'mongoose';
+import Task from '../models/Task.js';
 
 const router = Router();
 
@@ -84,9 +86,11 @@ router.get('/detailed', (req, res) => {
                 freeMemory: `${Math.round(os.freemem() / 1024 / 1024)}MB`,
                 loadavg: os.loadavg()
             },
-            data: {
-                totalTasks: taskStore ? taskStore.getAllTasks().length : 0,
-                statistics: taskStore ? taskStore.getStatistics() : null
+            database: {
+                type: 'MongoDB Atlas',
+                connectionState: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+                host: mongoose.connection.host || 'unknown',
+                name: mongoose.connection.name || 'unknown'
             }
         };
 
@@ -112,7 +116,7 @@ router.get('/ready', (req, res) => {
         const checks = {
             server: true,
             memory: process.memoryUsage().heapUsed < (1024 * 1024 * 500), // Less than 500MB
-            taskStore: taskStore !== null
+            database: mongoose.connection.readyState === 1 // 1 = connected
         };
         
         const allChecksPass = Object.values(checks).every(check => check === true);
@@ -210,6 +214,42 @@ taskflow_requests_total 0
     } catch (error) {
         logger.error('Metrics endpoint failed:', error);
         res.status(503).send('# Metrics collection failed');
+    }
+});
+
+/**
+ * @route   GET /health/database
+ * @desc    Database connection and statistics endpoint
+ * @access  Public
+ */
+router.get('/database', async (req, res) => {
+    try {
+        const dbTest = await testConnection();
+        const dbStats = await getDBStats();
+        
+        const databaseHealth = {
+            status: dbTest.success ? 'healthy' : 'unhealthy',
+            timestamp: new Date().toISOString(),
+            connection: {
+                state: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+                host: mongoose.connection.host || 'unknown',
+                database: mongoose.connection.name || 'unknown',
+                port: mongoose.connection.port || 'unknown'
+            },
+            test: dbTest,
+            statistics: dbStats
+        };
+
+        const statusCode = dbTest.success ? 200 : 503;
+        res.status(statusCode).json(databaseHealth);
+    } catch (error) {
+        logger.error('Database health check failed:', error);
+        res.status(503).json({
+            status: 'unhealthy',
+            timestamp: new Date().toISOString(),
+            error: 'Database health check failed',
+            details: process.env.NODE_ENV === 'development' ? error.message : 'Database unavailable'
+        });
     }
 });
 

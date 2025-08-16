@@ -10,8 +10,9 @@ import {
     createTask,
     updateTask,
     deleteTask,
-    getTaskStatistics
-} from '../controllers/taskController.js';
+    getTaskStatistics,
+    searchTasks
+} from '../controllers/simpleTaskController.js';
 import { validateTask, validateUpdateTask, validateQueryParams } from '../middleware/validation.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
@@ -26,6 +27,11 @@ router.get('/',
 // GET /api/v1/tasks/stats - Get task statistics  
 router.get('/stats', 
     asyncHandler(getTaskStatistics)
+);
+
+// GET /api/v1/tasks/search - Search tasks with text search
+router.get('/search', 
+    asyncHandler(searchTasks)
 );
 
 // GET /api/v1/tasks/:id - Get task by ID
